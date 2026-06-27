@@ -121,6 +121,12 @@ impl std::fmt::Display for PaneId {
 
 type IsFirstRun = bool;
 
+#[derive(Debug, Clone, Copy)]
+struct ScrollDisplayPosition {
+    display_position: usize,
+    display_length: usize,
+}
+
 // FIXME: This should hold an os_api handle so that terminal panes can set their own size via FD in
 // their `reflow_lines()` method. Drop a Box<dyn ServerOsApi> in here somewhere.
 #[allow(clippy::too_many_arguments)]
@@ -139,6 +145,7 @@ pub struct TerminalPane {
     pane_name: String,
     prev_pane_name: String,
     frame: HashMap<ClientId, PaneFrame>,
+    scroll_display_position: Option<ScrollDisplayPosition>,
     borderless: bool,
     exclude_from_sync: bool,
     fake_cursor_locations: HashSet<(usize, usize)>, // (x, y) - these hold a record of previous fake cursors which we need to clear on render
@@ -435,7 +442,7 @@ impl Pane for TerminalPane {
         let is_pinned = frame_geom.is_pinned;
         let mut frame = PaneFrame::new(
             frame_geom.into(),
-            self.grid.scrollback_position_and_length(),
+            self.scrollback_position_for_frame(),
             pane_title,
             frame_params,
         )
@@ -583,14 +590,30 @@ impl Pane for TerminalPane {
         self.grid.clear_screen()
     }
     fn scroll_up(&mut self, count: usize, _client_id: ClientId) {
+        let previous_actual_offset = self.grid.scrollback_position_and_length().0;
         self.grid.move_viewport_up(count);
+        self.update_scroll_display_position(previous_actual_offset);
+        self.set_should_render(true);
+    }
+    fn scroll_up_for_live_update(&mut self, count: usize, _client_id: ClientId) {
+        self.grid.move_viewport_up(count);
+        if self.grid.scrollback_position_and_length().0 == 0 {
+            self.scroll_display_position = None;
+        }
         self.set_should_render(true);
     }
     fn scroll_down(&mut self, count: usize, _client_id: ClientId) {
+        let previous_actual_offset = self.grid.scrollback_position_and_length().0;
         self.grid.move_viewport_down(count);
+        self.update_scroll_display_position(previous_actual_offset);
         self.set_should_render(true);
     }
     fn clear_scroll(&mut self) {
+        self.grid.reset_viewport();
+        self.scroll_display_position = None;
+        self.set_should_render(true);
+    }
+    fn reset_viewport_preserving_scroll_indicator(&mut self) {
         self.grid.reset_viewport();
         self.set_should_render(true);
     }
@@ -1133,6 +1156,7 @@ impl TerminalPane {
         }
         TerminalPane {
             frame: HashMap::new(),
+            scroll_display_position: None,
             content_offset: Offset::default(),
             pid,
             grid,
@@ -1161,6 +1185,53 @@ impl TerminalPane {
             pending_pty_input: VecDeque::new(),
         }
     }
+
+    // When output keeps coming in while we're scrolled up, we move the viewport
+    // back to keep the same lines visible. Keep the frame counter tied to the
+    // scrollback view the user started from, and rebase it once they scroll past
+    // that view into newer output.
+    fn scrollback_position_for_frame(&self) -> (usize, usize) {
+        self.scroll_display_position
+            .map(|position| (position.display_position, position.display_length))
+            .unwrap_or_else(|| self.grid.scrollback_position_and_length())
+    }
+
+    fn update_scroll_display_position(&mut self, previous_actual_offset: usize) {
+        let (actual_offset, actual_length) = self.grid.scrollback_position_and_length();
+        if actual_offset == 0 {
+            self.scroll_display_position = None;
+            return;
+        }
+
+        let next_position = match self.scroll_display_position {
+            Some(mut position) => {
+                if actual_offset >= previous_actual_offset {
+                    position.display_position = position
+                        .display_position
+                        .saturating_add(actual_offset - previous_actual_offset);
+                } else {
+                    position.display_position = position
+                        .display_position
+                        .saturating_sub(previous_actual_offset - actual_offset);
+                }
+                position
+            },
+            None => ScrollDisplayPosition {
+                display_position: actual_offset,
+                display_length: actual_length,
+            },
+        };
+
+        self.scroll_display_position = if next_position.display_position == 0 {
+            Some(ScrollDisplayPosition {
+                display_position: actual_offset,
+                display_length: actual_length,
+            })
+        } else {
+            Some(next_position)
+        };
+    }
+
     pub fn get_x(&self) -> usize {
         match self.geom_override {
             Some(position_and_size_override) => position_and_size_override.x,
@@ -1189,6 +1260,7 @@ impl TerminalPane {
         let rows = self.get_content_rows();
         let cols = self.get_content_columns();
         self.grid.force_change_size(rows, cols);
+        self.scroll_display_position = None;
         if self.banner.is_some() {
             self.grid.reset_terminal_state();
             self.render_first_run_banner();
