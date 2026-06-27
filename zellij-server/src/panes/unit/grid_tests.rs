@@ -2731,12 +2731,15 @@ pub fn taller_resize_at_top_fills_viewport_from_lines_below() {
     assert!(grid.cursor_coordinates().unwrap().1 > cursor_y_before_resize);
     assert!(!grid.lines_below.is_empty());
 
+    feed_bytes(&mut grid, b"after-resize\r\n");
     grid.reset_viewport();
 
+    let viewport_text = viewport_texts(&grid).join("\n");
     assert!(!grid.is_scrolled);
     assert!(grid.lines_below.is_empty());
     assert_eq!(grid.viewport.len(), grid.height);
-    assert!(viewport_texts(&grid).join("\n").contains("line-0029"));
+    assert!(viewport_text.contains("line-0029"));
+    assert!(viewport_text.contains("after-resize"));
 }
 
 #[test]

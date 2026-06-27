@@ -3882,21 +3882,11 @@ impl Tab {
         }
 
         let pane_id = PaneId::Terminal(pid);
-        let scroll_snapshot = self
-            .tiled_panes
-            .get_pane_mut(pane_id)
-            .or_else(|| self.floating_panes.get_pane_mut(pane_id))
-            .or_else(|| {
-                self.suppressed_panes
-                    .values_mut()
-                    .find(|s_p| s_p.1.pid() == pane_id)
-                    .map(|s_p| &mut s_p.1)
-            })
-            .and_then(|terminal_output| {
-                let snapshot = terminal_output.scrollback_position_and_length();
-                terminal_output.reset_viewport_preserving_scroll_indicator();
-                snapshot
-            });
+        let scroll_snapshot = self.get_pane_with_id_mut(pane_id).and_then(|terminal_output| {
+            let snapshot = terminal_output.scrollback_position_and_length();
+            terminal_output.reset_viewport_preserving_scroll_indicator();
+            snapshot
+        });
 
         let Some((scroll_offset_from_bottom, scrollback_length_before)) = scroll_snapshot else {
             for vte_event in vte_events {
@@ -3910,15 +3900,7 @@ impl Tab {
         }
 
         let scrollback_length_after = self
-            .tiled_panes
-            .get_pane_mut(pane_id)
-            .or_else(|| self.floating_panes.get_pane_mut(pane_id))
-            .or_else(|| {
-                self.suppressed_panes
-                    .values_mut()
-                    .find(|s_p| s_p.1.pid() == pane_id)
-                    .map(|s_p| &mut s_p.1)
-            })
+            .get_pane_with_id_mut(pane_id)
             .and_then(|terminal_output| terminal_output.scrollback_position_and_length())
             .map(|(_, scrollback_length)| scrollback_length)
             .unwrap_or(scrollback_length_before);
@@ -3930,17 +3912,7 @@ impl Tab {
 
         if scroll_offset_to_restore > 0 {
             let fictitious_client_id = 1; // terminal panes do not use this client id
-            if let Some(terminal_output) = self
-                .tiled_panes
-                .get_pane_mut(pane_id)
-                .or_else(|| self.floating_panes.get_pane_mut(pane_id))
-                .or_else(|| {
-                    self.suppressed_panes
-                        .values_mut()
-                        .find(|s_p| s_p.1.pid() == pane_id)
-                        .map(|s_p| &mut s_p.1)
-                })
-            {
+            if let Some(terminal_output) = self.get_pane_with_id_mut(pane_id) {
                 terminal_output
                     .scroll_up_for_live_update(scroll_offset_to_restore, fictitious_client_id);
             }
