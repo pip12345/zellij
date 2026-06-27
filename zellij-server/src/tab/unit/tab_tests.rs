@@ -15795,21 +15795,24 @@ pub fn scroll_down_by_pane_id() {
 }
 
 #[test]
-pub fn pty_output_while_scrolled_preserves_view_and_does_not_buffer() {
+pub fn pty_output_while_search_scrolled_preserves_view_and_does_not_buffer() {
     let size = Size { cols: 80, rows: 10 };
     let mut tab = create_new_tab(size, true);
     let pane_id = PaneId::Terminal(1);
+    let client_id = 1;
 
     for i in 0..30 {
         tab.handle_pty_bytes(1, format!("line-{i}\n").into_bytes())
             .unwrap();
     }
-    tab.page_scroll_up_by_pane_id(pane_id);
+    tab.update_search_term(b"line-0".to_vec(), client_id)
+        .unwrap();
 
     let before = tab
         .get_pane_with_id(pane_id)
         .unwrap()
         .dump_screen(false, None);
+    assert!(before.contains("line-0"));
     assert!(tab.get_pane_with_id(pane_id).unwrap().is_scrolled());
 
     tab.handle_pty_bytes(1, b"new-live-line\n".to_vec())

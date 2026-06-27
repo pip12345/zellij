@@ -614,6 +614,17 @@ impl Pane for TerminalPane {
         self.set_should_render(true);
     }
     fn reset_viewport_preserving_scroll_indicator(&mut self) {
+        // Search jumps the viewport without going through `scroll_up`, so remember
+        // what the frame was showing before resetting the grid.
+        if self.scroll_display_position.is_none() {
+            let (display_position, display_length) = self.grid.scrollback_position_and_length();
+            if display_position > 0 {
+                self.scroll_display_position = Some(ScrollDisplayPosition {
+                    display_position,
+                    display_length,
+                });
+            }
+        }
         self.grid.reset_viewport();
         self.set_should_render(true);
     }
