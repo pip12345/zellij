@@ -27,7 +27,11 @@ release: docker-image
 	$(DOCKER_RUN) cargo xtask build --release $(BUILD_ARGS)
 
 test: docker-image
+ifdef TEST_ARGS
 	$(DOCKER_RUN) cargo test $(TEST_ARGS)
+else
+	$(DOCKER_RUN) cargo test --workspace --all-targets
+endif
 
 test-tab: docker-image
 	$(DOCKER_RUN) cargo test -p zellij-server tab::tab_tests --no-default-features
