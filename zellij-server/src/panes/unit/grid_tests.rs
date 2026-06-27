@@ -2724,9 +2724,11 @@ pub fn taller_resize_at_top_fills_viewport_from_lines_below() {
     assert!(grid.is_scrolled);
     assert!(grid.lines_above.is_empty());
 
+    let cursor_y_before_resize = grid.cursor_coordinates().unwrap().1;
     grid.change_size(10, 40);
 
     assert_eq!(grid.viewport.len(), grid.height);
+    assert!(grid.cursor_coordinates().unwrap().1 > cursor_y_before_resize);
     assert!(!grid.lines_below.is_empty());
 
     grid.reset_viewport();
