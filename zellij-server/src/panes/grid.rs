@@ -1420,6 +1420,16 @@ impl Grid {
                     if let Some(saved_cursor_y_coordinates) = saved_cursor_y_coordinates.as_mut() {
                         *saved_cursor_y_coordinates += rows_pulled;
                     };
+                    // Pull rows from below in case there may not be enough lines above to fill viewport
+                    let missing_viewport_rows = new_rows.saturating_sub(self.viewport.len());
+                    if missing_viewport_rows > 0 && !self.lines_below.is_empty() {
+                        transfer_rows_from_lines_below_to_viewport(
+                            &mut self.lines_below,
+                            &mut self.viewport,
+                            missing_viewport_rows,
+                            new_columns,
+                        );
+                    }
                 },
                 Ordering::Greater => {
                     let row_count_to_transfer = current_viewport_row_count - new_rows;

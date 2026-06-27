@@ -2713,6 +2713,31 @@ pub fn scroll_up_increase_width_and_scroll_down() {
 }
 
 #[test]
+pub fn taller_resize_at_top_fills_viewport_from_lines_below() {
+    let mut content = String::new();
+    for i in 0..30 {
+        write!(&mut content, "line-{i:04}\r\n").unwrap();
+    }
+    let mut grid = create_grid_with_size_and_raw(5, 40, content.as_bytes());
+
+    grid.move_viewport_up(100);
+    assert!(grid.is_scrolled);
+    assert!(grid.lines_above.is_empty());
+
+    grid.change_size(10, 40);
+
+    assert_eq!(grid.viewport.len(), grid.height);
+    assert!(!grid.lines_below.is_empty());
+
+    grid.reset_viewport();
+
+    assert!(!grid.is_scrolled);
+    assert!(grid.lines_below.is_empty());
+    assert_eq!(grid.viewport.len(), grid.height);
+    assert!(viewport_texts(&grid).join("\n").contains("line-0029"));
+}
+
+#[test]
 fn saved_cursor_across_resize() {
     let mut vte_parser = vte::Parser::new();
     let sixel_image_store = Rc::new(RefCell::new(SixelImageStore::default()));
