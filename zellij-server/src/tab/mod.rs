@@ -348,6 +348,9 @@ pub trait Pane {
     fn scroll_right(&mut self, _count: usize, _client_id: ClientId) {}
     fn clear_scroll(&mut self);
     fn is_scrolled(&self) -> bool;
+    fn scrollback_position_and_length(&self) -> Option<(usize, usize)> {
+        None
+    }
     fn active_at(&self) -> Instant;
     fn set_active_at(&mut self, instant: Instant);
     fn set_frame(&mut self, frame: bool);
@@ -3785,29 +3788,48 @@ impl Tab {
             return Ok(());
         }
         let err_context = || format!("failed to handle pty bytes from fd {pid}");
+        let pane_id = PaneId::Terminal(pid);
+        let selecting_this_pane = self.selecting_with_mouse_in_pane == Some(pane_id);
         if let Some(terminal_output) = self
             .tiled_panes
-            .get_pane_mut(PaneId::Terminal(pid))
-            .or_else(|| self.floating_panes.get_pane_mut(PaneId::Terminal(pid)))
+            .get_pane_mut(pane_id)
+            .or_else(|| self.floating_panes.get_pane_mut(pane_id))
             .or_else(|| {
                 self.suppressed_panes
                     .values_mut()
-                    .find(|s_p| s_p.1.pid() == PaneId::Terminal(pid))
+                    .find(|s_p| s_p.1.pid() == pane_id)
                     .map(|s_p| &mut s_p.1)
             })
         {
-            // If the pane is scrolled buffer the vte events
+            // If the pane is scrolled up, keep processing PTY output but preserve the user's
+            // current viewport. The exception is active mouse selection, where we keep buffering
+            // so copied text comes from a stable snapshot.
             if terminal_output.is_scrolled() {
-                self.pending_vte_events.entry(pid).or_default().push(bytes);
-                if let Some(evs) = self.pending_vte_events.get(&pid) {
-                    // Reset scroll - and process all pending events for this pane
-                    if evs.len() >= MAX_PENDING_VTE_EVENTS {
-                        terminal_output.clear_scroll();
-                        self.process_pending_vte_events(pid)
-                            .with_context(err_context)?;
+                if selecting_this_pane {
+                    self.pending_vte_events.entry(pid).or_default().push(bytes);
+                    if let Some(evs) = self.pending_vte_events.get(&pid) {
+                        // Reset scroll - and process all pending events for this pane
+                        if evs.len() >= MAX_PENDING_VTE_EVENTS {
+                            terminal_output.clear_scroll();
+                            self.process_pending_vte_events(pid)
+                                .with_context(err_context)?;
+                        }
                     }
+                    return Ok(());
                 }
-                return Ok(());
+
+                let mut vte_events = self.pending_vte_events.remove(&pid).unwrap_or_default();
+                vte_events.push(bytes);
+                return self
+                    .process_pty_bytes_preserving_scroll(pid, vte_events)
+                    .with_context(err_context);
+            }
+        }
+
+        if let Some(pending_vte_events) = self.pending_vte_events.remove(&pid) {
+            for vte_event in pending_vte_events {
+                self.process_pty_bytes(pid, vte_event)
+                    .with_context(err_context)?;
             }
         }
         self.process_pty_bytes(pid, bytes).with_context(err_context)
@@ -3843,6 +3865,83 @@ impl Tab {
         }
         Ok(())
     }
+
+    fn process_pty_bytes_preserving_scroll(
+        &mut self,
+        pid: u32,
+        vte_events: Vec<VteBytes>,
+    ) -> Result<()> {
+        if vte_events.is_empty() {
+            return Ok(());
+        }
+
+        let pane_id = PaneId::Terminal(pid);
+        let scroll_snapshot = self
+            .tiled_panes
+            .get_pane_mut(pane_id)
+            .or_else(|| self.floating_panes.get_pane_mut(pane_id))
+            .or_else(|| {
+                self.suppressed_panes
+                    .values_mut()
+                    .find(|s_p| s_p.1.pid() == pane_id)
+                    .map(|s_p| &mut s_p.1)
+            })
+            .and_then(|terminal_output| {
+                let snapshot = terminal_output.scrollback_position_and_length();
+                terminal_output.clear_scroll();
+                snapshot
+            });
+
+        let Some((scroll_offset_from_bottom, scrollback_length_before)) = scroll_snapshot else {
+            for vte_event in vte_events {
+                self.process_pty_bytes(pid, vte_event)?;
+            }
+            return Ok(());
+        };
+
+        for vte_event in vte_events {
+            self.process_pty_bytes(pid, vte_event)?;
+        }
+
+        let scrollback_length_after = self
+            .tiled_panes
+            .get_pane_mut(pane_id)
+            .or_else(|| self.floating_panes.get_pane_mut(pane_id))
+            .or_else(|| {
+                self.suppressed_panes
+                    .values_mut()
+                    .find(|s_p| s_p.1.pid() == pane_id)
+                    .map(|s_p| &mut s_p.1)
+            })
+            .and_then(|terminal_output| terminal_output.scrollback_position_and_length())
+            .map(|(_, scrollback_length)| scrollback_length)
+            .unwrap_or(scrollback_length_before);
+
+        let newly_added_scrollback_rows =
+            scrollback_length_after.saturating_sub(scrollback_length_before);
+        let scroll_offset_to_restore =
+            scroll_offset_from_bottom.saturating_add(newly_added_scrollback_rows);
+
+        if scroll_offset_to_restore > 0 {
+            let fictitious_client_id = 1; // terminal panes do not use this client id
+            if let Some(terminal_output) = self
+                .tiled_panes
+                .get_pane_mut(pane_id)
+                .or_else(|| self.floating_panes.get_pane_mut(pane_id))
+                .or_else(|| {
+                    self.suppressed_panes
+                        .values_mut()
+                        .find(|s_p| s_p.1.pid() == pane_id)
+                        .map(|s_p| &mut s_p.1)
+                })
+            {
+                terminal_output.scroll_up(scroll_offset_to_restore, fictitious_client_id);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Deliver a forwarded host reply (or cache-fallback synthesis,
     /// or a locally-answered query payload) to a pane that is currently
     /// forward-paused. The reply bytes are written to the pane's PTY

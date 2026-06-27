@@ -15795,6 +15795,72 @@ pub fn scroll_down_by_pane_id() {
 }
 
 #[test]
+pub fn pty_output_while_scrolled_preserves_view_and_does_not_buffer() {
+    let size = Size { cols: 80, rows: 10 };
+    let mut tab = create_new_tab(size, true);
+    let pane_id = PaneId::Terminal(1);
+
+    for i in 0..30 {
+        tab.handle_pty_bytes(1, format!("line-{i}\n").into_bytes())
+            .unwrap();
+    }
+    tab.page_scroll_up_by_pane_id(pane_id);
+
+    let before = tab
+        .get_pane_with_id(pane_id)
+        .unwrap()
+        .dump_screen(false, None);
+    assert!(tab.get_pane_with_id(pane_id).unwrap().is_scrolled());
+
+    tab.handle_pty_bytes(1, b"new-live-line\n".to_vec())
+        .unwrap();
+
+    let after = tab
+        .get_pane_with_id(pane_id)
+        .unwrap()
+        .dump_screen(false, None);
+    assert_eq!(before, after);
+    assert!(
+        tab.pending_vte_events
+            .get(&1)
+            .map(|events| events.is_empty())
+            .unwrap_or(true),
+        "PTY output should be processed live instead of remaining buffered"
+    );
+
+    tab.scroll_to_bottom_by_pane_id(pane_id).unwrap();
+    let at_bottom = tab
+        .get_pane_with_id(pane_id)
+        .unwrap()
+        .dump_screen(false, None);
+    assert!(at_bottom.contains("new-live-line"));
+}
+
+#[test]
+pub fn pty_output_while_selecting_in_scrolled_pane_is_buffered() {
+    let size = Size { cols: 80, rows: 10 };
+    let mut tab = create_new_tab(size, true);
+    let pane_id = PaneId::Terminal(1);
+
+    for i in 0..30 {
+        tab.handle_pty_bytes(1, format!("line-{i}\n").into_bytes())
+            .unwrap();
+    }
+    tab.page_scroll_up_by_pane_id(pane_id);
+    tab.selecting_with_mouse_in_pane = Some(pane_id);
+
+    tab.handle_pty_bytes(1, b"selection-paused-line\n".to_vec())
+        .unwrap();
+
+    assert_eq!(tab.pending_vte_events.get(&1).map(Vec::len), Some(1));
+    let visible = tab
+        .get_pane_with_id(pane_id)
+        .unwrap()
+        .dump_screen(false, None);
+    assert!(!visible.contains("selection-paused-line"));
+}
+
+#[test]
 pub fn scroll_to_top_by_pane_id() {
     let size = Size {
         cols: 121,
