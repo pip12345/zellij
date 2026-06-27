@@ -828,6 +828,7 @@ impl Pane for TerminalPane {
         if !self.search_term.is_empty() {
             self.grid.set_search_string(&self.search_term);
         }
+        self.scroll_display_position = None;
         self.set_should_render(true);
     }
     fn search_down(&mut self) {
@@ -835,6 +836,7 @@ impl Pane for TerminalPane {
             return; // No-op
         }
         self.grid.search_down();
+        self.scroll_display_position = None;
         self.set_should_render(true);
     }
     fn search_up(&mut self) {
@@ -842,6 +844,7 @@ impl Pane for TerminalPane {
             return; // No-op
         }
         self.grid.search_up();
+        self.scroll_display_position = None;
         self.set_should_render(true);
     }
     fn toggle_search_case_sensitivity(&mut self) {
