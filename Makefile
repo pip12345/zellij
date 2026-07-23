@@ -30,7 +30,7 @@ test: docker-image
 ifdef TEST_ARGS
 	$(DOCKER_RUN) cargo test $(TEST_ARGS)
 else
-	$(DOCKER_RUN) cargo test --workspace --all-targets
+	$(DOCKER_RUN) env ZELLIJ_TEST_SERIAL=1 cargo test --workspace --all-targets -- --test-threads=1
 endif
 
 test-tab: docker-image
