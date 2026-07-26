@@ -15840,6 +15840,37 @@ pub fn pty_output_while_search_scrolled_preserves_view_and_does_not_buffer() {
 }
 
 #[test]
+pub fn pty_output_at_scrollback_limit_preserves_view() {
+    let size = Size { cols: 80, rows: 10 };
+    let mut tab = create_new_tab(size, true);
+    let pane_id = PaneId::Terminal(1);
+
+    let history = (0..10_030)
+        .map(|i| format!("line-{i:05}\r\n"))
+        .collect::<String>();
+    tab.handle_pty_bytes(1, history.into_bytes()).unwrap();
+    tab.page_scroll_up_by_pane_id(pane_id);
+    tab.page_scroll_up_by_pane_id(pane_id);
+
+    let pane = tab.get_pane_with_id(pane_id).unwrap();
+    let visible_before = pane.dump_screen(false, None);
+    let position_before = pane.scroll_position();
+
+    tab.handle_pty_bytes(
+        1,
+        b"new-live-line-1\r\nnew-live-line-2\r\nnew-live-line-3\r\n".to_vec(),
+    )
+    .unwrap();
+
+    let pane = tab.get_pane_with_id(pane_id).unwrap();
+    assert_eq!(pane.dump_screen(false, None), visible_before);
+    assert_eq!(
+        pane.scroll_position(),
+        (position_before.0 + 3, position_before.1)
+    );
+}
+
+#[test]
 pub fn pty_output_while_selecting_in_scrolled_pane_is_buffered() {
     let size = Size { cols: 80, rows: 10 };
     let mut tab = create_new_tab(size, true);

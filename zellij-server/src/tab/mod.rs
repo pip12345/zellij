@@ -348,7 +348,7 @@ pub trait Pane {
     fn scroll_right(&mut self, _count: usize, _client_id: ClientId) {}
     fn clear_scroll(&mut self);
     fn is_scrolled(&self) -> bool;
-    fn scrollback_position_and_length(&self) -> Option<(usize, usize)> {
+    fn scrollback_position_and_rows_added(&self) -> Option<(usize, usize)> {
         None
     }
     fn active_at(&self) -> Instant;
@@ -3877,12 +3877,12 @@ impl Tab {
 
         let pane_id = PaneId::Terminal(pid);
         let scroll_snapshot = self.get_pane_with_id_mut(pane_id).and_then(|terminal_output| {
-            let snapshot = terminal_output.scrollback_position_and_length();
+            let snapshot = terminal_output.scrollback_position_and_rows_added();
             terminal_output.clear_scroll();
             snapshot
         });
 
-        let Some((scroll_offset_from_bottom, scrollback_length_before)) = scroll_snapshot else {
+        let Some((scroll_offset_from_bottom, scrollback_rows_added_before)) = scroll_snapshot else {
             for vte_event in vte_events {
                 self.process_pty_bytes(pid, vte_event)?;
             }
@@ -3893,14 +3893,14 @@ impl Tab {
             self.process_pty_bytes(pid, vte_event)?;
         }
 
-        let scrollback_length_after = self
+        let scrollback_rows_added_after = self
             .get_pane_with_id_mut(pane_id)
-            .and_then(|terminal_output| terminal_output.scrollback_position_and_length())
-            .map(|(_, scrollback_length)| scrollback_length)
-            .unwrap_or(scrollback_length_before);
+            .and_then(|terminal_output| terminal_output.scrollback_position_and_rows_added())
+            .map(|(_, scrollback_rows_added)| scrollback_rows_added)
+            .unwrap_or(scrollback_rows_added_before);
 
         let newly_added_scrollback_rows =
-            scrollback_length_after.saturating_sub(scrollback_length_before);
+            scrollback_rows_added_after.wrapping_sub(scrollback_rows_added_before);
         let scroll_offset_to_restore =
             scroll_offset_from_bottom.saturating_add(newly_added_scrollback_rows);
 

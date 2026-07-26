@@ -598,8 +598,11 @@ impl Pane for TerminalPane {
         self.grid.is_scrolled
     }
 
-    fn scrollback_position_and_length(&self) -> Option<(usize, usize)> {
-        Some(self.grid.scrollback_position_and_length())
+    fn scrollback_position_and_rows_added(&self) -> Option<(usize, usize)> {
+        Some((
+            self.grid.scrollback_position_and_length().0,
+            self.grid.scrollback_rows_added(),
+        ))
     }
 
     fn active_at(&self) -> Instant {

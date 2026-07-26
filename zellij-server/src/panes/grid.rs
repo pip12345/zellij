@@ -631,6 +631,8 @@ pub struct Grid {
     pub link_handler: Rc<RefCell<LinkHandler>>,
     pub ring_bell: bool,
     scrollback_buffer_lines: usize,
+    // Monotonic output progress lets callers preserve a viewport when bounded history evicts rows.
+    scrollback_rows_added: usize,
     pub mouse_mode: MouseMode,
     pub mouse_tracking: MouseTracking,
     pub focus_event_tracking: bool,
@@ -960,6 +962,7 @@ impl Grid {
             link_handler,
             ring_bell: false,
             scrollback_buffer_lines: 0,
+            scrollback_rows_added: 0,
             mouse_mode: MouseMode::default(),
             mouse_tracking: MouseTracking::default(),
             focus_event_tracking: false,
@@ -1039,6 +1042,10 @@ impl Grid {
             self.lines_below.len(),
             (self.scrollback_buffer_lines + self.lines_below.len()),
         )
+    }
+
+    pub(crate) fn scrollback_rows_added(&self) -> usize {
+        self.scrollback_rows_added
     }
 
     fn recalculate_scrollback_buffer_count(&mut self) -> usize {
@@ -2920,6 +2927,9 @@ impl Grid {
         }
     }
     fn transfer_rows_to_lines_above(&mut self, count: usize) {
+        self.scrollback_rows_added = self
+            .scrollback_rows_added
+            .wrapping_add(count.min(self.viewport.len()));
         let transferred_rows_count = transfer_rows_from_viewport_to_lines_above(
             &mut self.viewport,
             &mut self.lines_above,
