@@ -343,16 +343,10 @@ pub trait Pane {
         "".to_owned()
     }
     fn scroll_up(&mut self, count: usize, client_id: ClientId);
-    fn scroll_up_for_live_update(&mut self, count: usize, client_id: ClientId) {
-        self.scroll_up(count, client_id);
-    }
     fn scroll_down(&mut self, count: usize, client_id: ClientId);
     fn scroll_left(&mut self, _count: usize, _client_id: ClientId) {}
     fn scroll_right(&mut self, _count: usize, _client_id: ClientId) {}
     fn clear_scroll(&mut self);
-    fn reset_viewport_preserving_scroll_indicator(&mut self) {
-        self.clear_scroll();
-    }
     fn is_scrolled(&self) -> bool;
     fn scrollback_position_and_length(&self) -> Option<(usize, usize)> {
         None
@@ -3884,7 +3878,7 @@ impl Tab {
         let pane_id = PaneId::Terminal(pid);
         let scroll_snapshot = self.get_pane_with_id_mut(pane_id).and_then(|terminal_output| {
             let snapshot = terminal_output.scrollback_position_and_length();
-            terminal_output.reset_viewport_preserving_scroll_indicator();
+            terminal_output.clear_scroll();
             snapshot
         });
 
@@ -3913,8 +3907,7 @@ impl Tab {
         if scroll_offset_to_restore > 0 {
             let fictitious_client_id = 1; // terminal panes do not use this client id
             if let Some(terminal_output) = self.get_pane_with_id_mut(pane_id) {
-                terminal_output
-                    .scroll_up_for_live_update(scroll_offset_to_restore, fictitious_client_id);
+                terminal_output.scroll_up(scroll_offset_to_restore, fictitious_client_id);
             }
         }
 

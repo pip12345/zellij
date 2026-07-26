@@ -25,7 +25,7 @@ fn read_fixture(fixture_name: &str) -> Vec<u8> {
 }
 
 #[test]
-pub fn scroll_indicator_stays_anchored_during_live_output() {
+pub fn scroll_indicator_updates_with_live_output() {
     let fake_client_id = 1;
     let mut fake_win_size = PaneGeom::default();
     fake_win_size.cols.set_inner(80);
@@ -58,100 +58,35 @@ pub fn scroll_indicator_stays_anchored_during_live_output() {
     terminal_pane.handle_pty_bytes(text_to_fill_pane.into_bytes());
 
     terminal_pane.scroll_up(5, fake_client_id);
-    let frame_position_before = terminal_pane.scrollback_position_for_frame();
-    let actual_position_before = terminal_pane.grid.scrollback_position_and_length();
-
-    let (scroll_offset_from_bottom, scrollback_length_before) =
+    let visible_before = terminal_pane.dump_screen(false, None);
+    let (scroll_offset_before, scrollback_length_before) =
         terminal_pane.grid.scrollback_position_and_length();
-    terminal_pane.reset_viewport_preserving_scroll_indicator();
-    terminal_pane.handle_pty_bytes(b"line 31\nline 32\n".to_vec());
+
+    terminal_pane.clear_scroll();
+    terminal_pane.handle_pty_bytes(b"line 31\r\nline 32\r\nline 33\r\n".to_vec());
     let scrollback_length_after = terminal_pane.grid.scrollback_position_and_length().1;
-    let newly_added_scrollback_rows =
-        scrollback_length_after.saturating_sub(scrollback_length_before);
-    terminal_pane.scroll_up_for_live_update(
-        scroll_offset_from_bottom.saturating_add(newly_added_scrollback_rows),
+    let newly_added_scrollback_rows = scrollback_length_after - scrollback_length_before;
+    terminal_pane.scroll_up(
+        scroll_offset_before + newly_added_scrollback_rows,
         fake_client_id,
     );
 
+    assert_eq!(terminal_pane.dump_screen(false, None), visible_before);
     assert_eq!(
-        terminal_pane.scrollback_position_for_frame(),
-        frame_position_before
-    );
-    assert!(terminal_pane.grid.scrollback_position_and_length().0 > actual_position_before.0);
-
-    terminal_pane.scroll_up(1, fake_client_id);
-    assert_eq!(
-        terminal_pane.scrollback_position_for_frame(),
-        (frame_position_before.0 + 1, frame_position_before.1)
+        terminal_pane.grid.scrollback_position_and_length(),
+        (
+            scroll_offset_before + newly_added_scrollback_rows,
+            scrollback_length_after,
+        )
     );
 
     terminal_pane.scroll_down(1, fake_client_id);
     assert_eq!(
-        terminal_pane.scrollback_position_for_frame(),
-        frame_position_before
-    );
-}
-
-#[test]
-pub fn scroll_indicator_rebases_when_scrolling_past_live_output_boundary() {
-    let fake_client_id = 1;
-    let mut fake_win_size = PaneGeom::default();
-    fake_win_size.cols.set_inner(80);
-    fake_win_size.rows.set_inner(10);
-
-    let mut terminal_pane = TerminalPane::new(
-        1,
-        fake_win_size,
-        Style::default(),
-        0,
-        String::new(),
-        Rc::new(RefCell::new(LinkHandler::new())),
-        Rc::new(RefCell::new(None)),
-        Rc::new(RefCell::new(SixelImageStore::default())),
-        Rc::new(RefCell::new(Palette::default())),
-        Rc::new(RefCell::new(HashMap::new())),
-        None,
-        None,
-        false,
-        true,
-        true,
-        true,
-        false,
-        None,
-    );
-    let mut text_to_fill_pane = String::new();
-    for i in 1..=30 {
-        writeln!(&mut text_to_fill_pane, "line {i}").unwrap();
-    }
-    terminal_pane.handle_pty_bytes(text_to_fill_pane.into_bytes());
-
-    terminal_pane.scroll_up(5, fake_client_id);
-    let anchored_position = terminal_pane.scrollback_position_for_frame();
-
-    let (scroll_offset_from_bottom, scrollback_length_before) =
-        terminal_pane.grid.scrollback_position_and_length();
-    terminal_pane.reset_viewport_preserving_scroll_indicator();
-    terminal_pane.handle_pty_bytes(b"line 31\nline 32\nline 33\n".to_vec());
-    let scrollback_length_after = terminal_pane.grid.scrollback_position_and_length().1;
-    let newly_added_scrollback_rows =
-        scrollback_length_after.saturating_sub(scrollback_length_before);
-    terminal_pane.scroll_up_for_live_update(
-        scroll_offset_from_bottom.saturating_add(newly_added_scrollback_rows),
-        fake_client_id,
-    );
-    assert_eq!(terminal_pane.scrollback_position_for_frame(), anchored_position);
-
-    terminal_pane.scroll_down(anchored_position.0, fake_client_id);
-
-    let frame_position = terminal_pane.scrollback_position_for_frame();
-    let actual_position = terminal_pane.grid.scrollback_position_and_length();
-    assert_eq!(frame_position, actual_position);
-    assert!(frame_position.0 > 0);
-
-    terminal_pane.clear_scroll();
-    assert_eq!(
-        terminal_pane.scrollback_position_for_frame(),
-        terminal_pane.grid.scrollback_position_and_length()
+        terminal_pane.grid.scrollback_position_and_length(),
+        (
+            scroll_offset_before + newly_added_scrollback_rows - 1,
+            scrollback_length_after,
+        )
     );
 }
 
