@@ -938,6 +938,7 @@ impl MouseHandler {
     ) -> Result<MouseEffect> {
         let err_context = || "failed to end selection";
         let mut leave_clipboard_message = false;
+        let mut terminal_pid_to_flush = None;
         let copy_on_release = tab.copy_on_select;
 
         if let Some(pane_with_selection) = tab
@@ -976,8 +977,16 @@ impl MouseHandler {
                         }
                     }
                 }
+                if let PaneId::Terminal(pid) = pane_with_selection.pid() {
+                    terminal_pid_to_flush = Some(pid);
+                }
                 tab.selecting_with_mouse_in_pane = None;
             }
+        }
+
+        if let Some(pid) = terminal_pid_to_flush {
+            tab.process_pending_vte_events(pid)
+                .with_context(err_context)?;
         }
 
         if leave_clipboard_message {

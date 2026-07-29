@@ -3856,11 +3856,19 @@ impl Tab {
         Ok(())
     }
     pub fn process_pending_vte_events(&mut self, pid: u32) -> Result<()> {
-        if let Some(pending_vte_events) = self.pending_vte_events.get_mut(&pid) {
-            let vte_events: Vec<VteBytes> = pending_vte_events.drain(..).collect();
-            for vte_event in vte_events {
-                self.process_pty_bytes(pid, vte_event)
+        if let Some(vte_events) = self.pending_vte_events.remove(&pid) {
+            let pane_is_scrolled = self
+                .get_pane_with_id(PaneId::Terminal(pid))
+                .map(|pane| pane.is_scrolled())
+                .unwrap_or(false);
+            if pane_is_scrolled {
+                self.process_pty_bytes_preserving_scroll(pid, vte_events)
                     .context("failed to process pending vte events")?;
+            } else {
+                for vte_event in vte_events {
+                    self.process_pty_bytes(pid, vte_event)
+                        .context("failed to process pending vte events")?;
+                }
             }
         }
         Ok(())

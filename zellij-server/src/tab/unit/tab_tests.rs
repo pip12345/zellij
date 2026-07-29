@@ -15871,7 +15871,7 @@ pub fn pty_output_at_scrollback_limit_preserves_view() {
 }
 
 #[test]
-pub fn pty_output_while_selecting_in_scrolled_pane_is_buffered() {
+pub fn pty_output_while_selecting_in_scrolled_pane_is_flushed_on_release() {
     let size = Size { cols: 80, rows: 10 };
     let mut tab = create_new_tab(size, true);
     let pane_id = PaneId::Terminal(1);
@@ -15892,6 +15892,23 @@ pub fn pty_output_while_selecting_in_scrolled_pane_is_buffered() {
         .unwrap()
         .dump_screen(false, None);
     assert!(!visible.contains("selection-paused-line"));
+
+    tab.selecting_with_mouse_in_pane = None;
+    tab.process_pending_vte_events(1).unwrap();
+
+    assert!(!tab.pending_vte_events.contains_key(&1));
+    let visible_after_release = tab
+        .get_pane_with_id(pane_id)
+        .unwrap()
+        .dump_screen(false, None);
+    assert_eq!(visible_after_release, visible);
+
+    tab.scroll_to_bottom_by_pane_id(pane_id).unwrap();
+    let at_bottom = tab
+        .get_pane_with_id(pane_id)
+        .unwrap()
+        .dump_screen(false, None);
+    assert!(at_bottom.contains("selection-paused-line"));
 }
 
 #[test]
