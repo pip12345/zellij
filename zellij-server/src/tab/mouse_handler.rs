@@ -940,9 +940,9 @@ impl MouseHandler {
         let mut leave_clipboard_message = false;
         let mut terminal_pid_to_flush = None;
         let copy_on_release = tab.copy_on_select;
+        let pane_id_with_selection = tab.selecting_with_mouse_in_pane;
 
-        if let Some(pane_with_selection) = tab
-            .selecting_with_mouse_in_pane
+        if let Some(pane_with_selection) = pane_id_with_selection
             .and_then(|p_id| tab.get_pane_with_id_mut(p_id))
         {
             let mut relative_position = pane_with_selection.relative_position(&position);
@@ -977,7 +977,7 @@ impl MouseHandler {
                         }
                     }
                 }
-                if let PaneId::Terminal(pid) = pane_with_selection.pid() {
+                if let Some(PaneId::Terminal(pid)) = pane_id_with_selection {
                     terminal_pid_to_flush = Some(pid);
                 }
                 tab.selecting_with_mouse_in_pane = None;
